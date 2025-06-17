@@ -28,6 +28,19 @@
       text-align: center;
       box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e3a8a;
+      color: white;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+      z-index: 1000;
+    }
     main {
       max-width: 960px;
       margin: auto;
@@ -70,6 +83,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
+      display: none;
     }
     th, td {
       padding: 0.75rem;
@@ -80,24 +94,42 @@
       background: #1e3a8a;
       color: white;
     }
+    .mobile-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 0.75rem 1rem;
+      background: #f9fafb;
+      margin-bottom: 1rem;
+      border-left: 4px solid #1e3a8a;
+      border-radius: 0.5rem;
+    }
+    .mobile-card div {
+      font-size: 0.95rem;
+    }
     .profit { color: green; font-weight: bold; }
     .loss { color: red; font-weight: bold; }
-    button.delete {
+    .delete-btn {
       background-color: #ef4444;
+      border: none;
+      color: white;
+      padding: 0.4rem 0.9rem;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      align-self: flex-start;
     }
-    button.delete:hover {
+    .delete-btn:hover {
       background-color: #dc2626;
     }
-    @media (max-width: 768px) {
-      header { font-size: 1.2rem; padding: 0.8rem; }
-      main { padding: 0.5rem; }
-      .card { padding: 1rem; }
-      form input, form button { font-size: 0.95rem; padding: 0.6rem; }
-      h2 { font-size: 1.1rem; }
+    @media (min-width: 768px) {
+      table { display: table; }
+      .mobile-card { display: none; }
     }
   </style>
 </head>
 <body>
+  <div class="toast" id="toast">💡 Tip: Add this app to your home screen from the Share menu for the best experience!</div>
   <header>TradeFlow 2025 – Your Personal P&L Tracker</header>
   <main>
     <div class="card">
@@ -112,6 +144,7 @@
 
     <div class="card">
       <h2>📊 Trade History</h2>
+      <div id="mobileTrades"></div>
       <table id="tradeTable">
         <thead>
           <tr>
@@ -144,8 +177,18 @@
         .catch(err => console.log('Service Worker failed:', err));
     }
 
+    window.onload = () => {
+      if (!localStorage.getItem('pwaTipShown')) {
+        const toast = document.getElementById('toast');
+        toast.style.display = 'block';
+        setTimeout(() => toast.style.display = 'none', 8000);
+        localStorage.setItem('pwaTipShown', 'true');
+      }
+    };
+
     const form = document.getElementById('tradeForm');
-    const table = document.getElementById('tradeTable').getElementsByTagName('tbody')[0];
+    const tableBody = document.getElementById('tradeTable').getElementsByTagName('tbody')[0];
+    const mobileTrades = document.getElementById('mobileTrades');
     const summary = document.getElementById('summary');
     let trades = JSON.parse(localStorage.getItem('trades')) || [];
 
@@ -163,17 +206,33 @@
     }
 
     function renderTable() {
-      table.innerHTML = '';
+      tableBody.innerHTML = '';
+      mobileTrades.innerHTML = '';
+
       trades.forEach((t, i) => {
-        const row = table.insertRow();
+        // Desktop Table
+        const row = tableBody.insertRow();
         row.innerHTML = `
           <td>${t.date}</td>
           <td>$${parseFloat(t.spent).toFixed(2)}</td>
           <td>$${parseFloat(t.earned).toFixed(2)}</td>
           <td class="${(t.earned - t.spent) >= 0 ? 'profit' : 'loss'}">$${(t.earned - t.spent).toFixed(2)}</td>
-          <td><button class="delete" onclick="deleteTrade(${i})">Delete</button></td>
+          <td><button class="delete-btn" onclick="deleteTrade(${i})">Delete</button></td>
         `;
+
+        // Mobile View
+        const div = document.createElement('div');
+        div.className = 'mobile-card';
+        div.innerHTML = `
+          <div><strong>Date:</strong> ${t.date}</div>
+          <div><strong>Spent:</strong> $${parseFloat(t.spent).toFixed(2)}</div>
+          <div><strong>Earned:</strong> $${parseFloat(t.earned).toFixed(2)}</div>
+          <div><strong>P&L:</strong> <span class="${(t.earned - t.spent) >= 0 ? 'profit' : 'loss'}">$${(t.earned - t.spent).toFixed(2)}</span></div>
+          <button class="delete-btn" onclick="deleteTrade(${i})">Delete</button>
+        `;
+        mobileTrades.appendChild(div);
       });
+
       updateSummary();
       renderChart();
     }
