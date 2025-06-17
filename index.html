@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradeFlow 2025</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1e3a8a">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: 'Inter', sans-serif; }
+    body { margin: 0; background: #f4f7fb; color: #222; }
+    header { padding:1rem; background:#1e3a8a; color:#fff; font-size:1.6rem; text-align:center; box-shadow:0 4px 12px rgba(0,0,0,0.05);}    
+    .toast { position:fixed; bottom:1rem; left:50%; transform:translateX(-50%); background:#1e3a8a; color:#fff; padding:0.5rem 1rem; border-radius:20px; font-size:0.85rem; opacity:0; pointer-events:none; transition:opacity 0.3s ease; z-index:1000;}    
+    .toast.show { opacity:1; pointer-events:auto; }
+    main { max-width:960px; margin:auto; padding:1rem; display:flex; flex-direction:column; gap:1.5rem; }
+    .card { background:#fff; padding:1rem; border-radius:1rem; box-shadow:0 4px 20px rgba(0,0,0,0.05); transition:transform 0.2s; }
+    .card:hover { transform:translateY(-2px); }
+    h2 { margin:0 0 0.5rem; font-size:1.2rem; color:#1e3a8a; }
+    form input, form button { width:100%; font-size:1rem; padding:0.6rem; margin-top:0.3rem; border-radius:8px; border:1px solid #ccc; }
+    form button { background:#1e3a8a; color:#fff; border:none; cursor:pointer; transition:background 0.2s; }
+    form button:hover { background:#143172; }
+    table { width:100%; border-collapse:collapse; display:none; }
+    th, td { padding:0.75rem; border-bottom:1px solid #e0e0e0; text-align:left; }
+    th { background:#1e3a8a; color:#fff; }
+    .mobile-card { display:flex; flex-direction:column; gap:0.25rem; background:#f9fafb; padding:0.75rem 1rem; border-left:4px solid #1e3a8a; border-radius:0.5rem; margin-bottom:1rem; }
+    .mobile-card div { font-size:0.95rem; }
+    .profit { color:green; font-weight:bold; }
+    .loss { color:red; font-weight:bold; }
+    .delete-btn { background:#ef4444; border:none; color:#fff; padding:0.4rem 0.9rem; border-radius:20px; font-size:0.85rem; cursor:pointer; transition:background 0.2s; }
+    .delete-btn:hover { background:#dc2626; }
+    @media (min-width:768px) { table{display:table;} .mobile-card{display:none;} }
+  </style>
+</head>
+<body>
+  <div class="toast" id="toast">💡 Add to Home Screen via Share menu for full app experience</div>
+  <header>TradeFlow 2025 – Your Personal P&L Tracker</header>
+  <main>
+    <div class="card">
+      <h2>📥 Add Trade</h2>
+      <form id="tradeForm">
+        <div style="position:relative;">
+          <input type="date" id="date" required style="background:transparent; z-index:2; width:100%; padding:0.6rem;" />
+          <span id="datePlaceholder" style="position:absolute; left:12px; top:8px; color:#aaa; pointer-events:none;">Select Date</span>
+        </div>
+        <input type="number" id="spent" inputmode="decimal" placeholder="Amount Spent (AUD)" required />
+        <input type="number" id="earned" inputmode="decimal" placeholder="Amount Earned (AUD)" required />
+        <button type="submit">Add</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>📊 History</h2>
+      <div id="mobileTrades"></div>
+      <table id="tradeTable"><thead><tr><th>Date</th><th>Spent</th><th>Earned</th><th>P&L</th><th>Action</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>📈 Summary</h2>
+      <div id="summary"></div>
+    </div>
+    <div class="card">
+      <h2>📅 Monthly P&L</h2>
+      <canvas id="pnlChart" height="100"></canvas>
+    </div>
+  </main>
+  <script>
+    if('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').then(reg=>{
+      reg.onupdatefound = ()=>{ const newW = reg.installing;
+        newW.onstatechange = ()=>{ if(newW.state==='installed' && navigator.serviceWorker.controller){
+          window.location.reload();
+        }}};
+    });
+    window.onload = ()=>{
+      if(!localStorage.getItem('toastShown')){
+        const t = document.getElementById('toast'); t.classList.add('show');
+        document.addEventListener('click', ()=>t.classList.remove('show'),{once:true});
+        setTimeout(()=>t.classList.remove('show'),5000);
+        localStorage.setItem('toastShown','1');
+      }
+    };
+    const dateInput = document.getElementById('date'), ph = document.getElementById('datePlaceholder');
+    const togglePh = ()=>ph.style.display = dateInput.value ? 'none' : 'block';
+    ['input','focus','blur'].forEach(evt=> dateInput.addEventListener(evt,togglePh)); togglePh();
+    const form = document.getElementById('tradeForm'), tb = document.getElementById('tradeTable').tBodies[0], mt = document.getElementById('mobileTrades'), sum = document.getElementById('summary');
+    let trades = JSON.parse(localStorage.getItem('trades'))||[];
+    form.onsubmit = e=>{ e.preventDefault();
+      trades.push({date:dateInput.value,spent:+document.getElementById('spent').value,earned:+document.getElementById('earned').value});
+      localStorage.setItem('trades',JSON.stringify(trades));
+      form.reset(); togglePh(); renderAll();
+    };
+    window.deleteTrade = i=>{ trades.splice(i,1); localStorage.setItem('trades',JSON.stringify(trades)); renderAll(); };
+    function updateSummary(){
+      const s=trades.reduce((a,c)=>a+c.spent,0), e=trades.reduce((a,c)=>a+c.earned,0), n=e-s, r=s?((n/s)*100).toFixed(2):0;
+      let best, worst;
+      trades.forEach(t=>{ const pl=t.earned-t.spent;
+        best=!best||pl>(best.earned-best.spent)?t:best;
+        worst=!worst||pl<(worst.earned-worst.spent)?t:worst;
+      });
+      sum.innerHTML = `<p>Spent: $${s.toFixed(2)}</p><p>Earned: $${e.toFixed(2)}</p><p>P&L: <span class="${n>=0?'profit':'loss'}">$${n.toFixed(2)}</span></p><p>ROI: ${r}%</p>${best?`<p>Best: ${best.date} ($${(best.earned-best.spent).toFixed(2)})</p>`:''}${worst?`<p>Worst: ${worst.date} ($${(worst.earned-worst.spent).toFixed(2)})</p>`:''}`;
+    }
+    function renderTrades(){
+      tb.innerHTML=''; mt.innerHTML='';
+      trades.forEach((t,i)=>{
+        const tr = tb.insertRow();
+        tr.innerHTML = `<td>${t.date}</td><td>$${t.spent.toFixed(2)}</td><td>$${t.earned.toFixed(2)}</td><td class="${t.earned-t.spent>=0?'profit':'loss'}">$${(t.earned-t.spent).toFixed(2)}</td><td><button class="delete-btn" onclick="deleteTrade(${i})">Delete</button></td>`;
+        const c = document.createElement('div'); c.className='mobile-card';
+        c.innerHTML = `<div><strong>Date:</strong> ${t.date}</div><div><strong>Spent:</strong> $${t.spent.toFixed(2)}</div><div><strong>Earned:</strong> $${t.earned.toFixed(2)}</div><div><strong>P&L:</strong> <span class="${t.earned-t.spent>=0?'profit':'loss'}">$${(t.earned-t.spent).toFixed(2)}</span></div><button class="delete-btn" onclick="deleteTrade(${i})">Delete</button>`;
+        mt.appendChild(c);
+}});}
+    function renderChart(){
+      const ctx=document.getElementById('pnlChart').getContext('2d'), g={}, labels=[], data=[];
+      trades.forEach(t=>{ const d=new Date(t.date), k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, v=t.earned-t.spent;
+        g[k]=(g[k]||0)+v;
+      });
+      for(const k in g){ labels.push(k); data.push(g[k]); }
+      if(window.pnl) window.pnl.destroy();
+      window.pnl=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Net P&L',data,backgroundColor:data.map(v=>v>=0?'rgba(0,200,0,0.6)':'rgba(200,0,0,0.6)')}]}});
+    }
+    function renderAll(){ renderTrades(); updateSummary(); renderChart(); }
+    renderAll();
+  </script>
+</body>
+</html>
